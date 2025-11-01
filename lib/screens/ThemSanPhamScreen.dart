@@ -2,16 +2,25 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../database/database_helper.dart';
+import 'package:provider/provider.dart';
+import 'SanPhamProvider.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'PaymentScreen.dart';
+import 'barcode_scanner_screen.dart';
 
 class ThemSanPhamScreen extends StatefulWidget {
   final Function(Map<String, dynamic>) onSanPhamAdded;
   final Map<String, dynamic>? sanPhamToEdit;
   final String userRole;
+  final bool isForPayment;
+  final Function(Map<String, dynamic>)? onProductSelected;
 
   ThemSanPhamScreen({
     required this.onSanPhamAdded,
     this.sanPhamToEdit,
     required this.userRole,
+    this.isForPayment = false,
+    this.onProductSelected,
   });
 
   @override
@@ -21,8 +30,10 @@ class ThemSanPhamScreen extends StatefulWidget {
 class _ThemSanPhamScreenState extends State<ThemSanPhamScreen> {
   final TextEditingController _tenSanPhamController = TextEditingController();
   final TextEditingController _giaSanPhamController = TextEditingController();
-  final TextEditingController _maVachSanPhamController = TextEditingController();
+  final TextEditingController _maVachController = TextEditingController();
   File? _selectedImage;
+  bool _isScanning = false;
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void initState() {
@@ -30,11 +41,21 @@ class _ThemSanPhamScreenState extends State<ThemSanPhamScreen> {
     if (widget.sanPhamToEdit != null) {
       _tenSanPhamController.text = widget.sanPhamToEdit!['ten'];
       _giaSanPhamController.text = widget.sanPhamToEdit!['gia'].toString();
-      _maVachSanPhamController.text = widget.sanPhamToEdit!['maVach'] ?? '';
       if (widget.sanPhamToEdit!['hinhAnh'] != null) {
         _selectedImage = File(widget.sanPhamToEdit!['hinhAnh']);
       }
+      if (widget.sanPhamToEdit!['maVach'] != null) {
+        _maVachController.text = widget.sanPhamToEdit!['maVach'];
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _tenSanPhamController.dispose();
+    _giaSanPhamController.dispose();
+    _maVachController.dispose();
+    super.dispose();
   }
 
   Future<void> _chonAnh() async {
@@ -46,131 +67,220 @@ class _ThemSanPhamScreenState extends State<ThemSanPhamScreen> {
     }
   }
 
-  Future<void> _themSanPham() async {
-    String tenSanPham = _tenSanPhamController.text.trim();
-    String giaSanPham = _giaSanPhamController.text.trim();
-    String maVachSanPham = _maVachSanPhamController.text.trim();
-    print('Giá trị maVachSanPham: $maVachSanPham');
-    if (tenSanPham.isEmpty || giaSanPham.isEmpty || maVachSanPham.isEmpty || _selectedImage == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Vui lòng nhập đầy đủ thông tin và chọn ảnh!')),
-      );
-      return;
-    }
+  Future<void> _startScan(BuildContext context) async {
+    setState(() {
+      _isScanning = true;
+    });
+    final String? barcodeResult = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BarcodeScannerScreen(
+          userRole: widget.userRole,
+          forPayment: widget.isForPayment,
+        ),
+      ),
+    );
+    setState(() {
+      _isScanning = false;
+      if (barcodeResult != null) {
+        _maVachController.text = barcodeResult;
+      }
+    });
+  }
 
-    double gia;
-    try {
-      gia = double.parse(giaSanPham);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Giá sản phẩm không hợp lệ!')),
-      );
-      return;
-    }
+  Future<void> _luuSanPham(BuildContext context) async {
+    if (_formKey.currentState!.validate()) {
+      String tenSanPham = _tenSanPhamController.text.trim();
+      String giaSanPham = _giaSanPhamController.text.trim();
+      String maVach = _maVachController.text.trim();
 
-    Map<String, dynamic> sanPham = {
-      'ten': tenSanPham,
-      'gia': gia,
-      'maVach': maVachSanPham,
-      'hinhAnh': _selectedImage!.path,
-      'id': widget.sanPhamToEdit?['id'],
-    };
-    print('Dữ liệu sản phẩm trước khi chèn: $sanPham');
-    try {
-      print('Dữ liệu sản phẩm trước khi chèn: $sanPham');
-      int result = await DatabaseHelper.instance.insertSanPham(sanPham);
-      print('Kết quả chèn sản phẩm: $result');
+      double gia = double.parse(giaSanPham);
 
-      if (result > 0) {
-        widget.onSanPhamAdded(sanPham);
-        Navigator.pop(context, true);
+
+      String maVachToLuu = maVach;
+      if (maVach.isEmpty) {
+        maVachToLuu = 'NO_BARCODE_${DateTime.now().millisecondsSinceEpoch}';
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Không thể thêm sản phẩm. Vui lòng thử lại.')),
-        );
-        Navigator.pop(context, false);
+        bool isMaVachValid = await DatabaseHelper.instance.isMaVachUnique(maVach);
+        if (widget.sanPhamToEdit != null && maVachToLuu == widget.sanPhamToEdit!['maVach'])
+        {
+          isMaVachValid = true;
+        }
+        if (!isMaVachValid) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content:
+                  Text('Mã vạch đã tồn tại! Vui lòng nhập mã vạch khác.')),
+            );
+          }
+          return;
+        }
       }
 
-    } catch (e) {
-      print('Lỗi thêm sản phẩm: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Có lỗi xảy ra khi thêm sản phẩm.')),
-      );
-      Navigator.pop(context, false);
+      Map<String, dynamic> sanPham = {
+        'ten': tenSanPham,
+        'gia': gia,
+        'hinhAnh': _selectedImage?.path,
+        'maVach': maVachToLuu,
+      };
+
+      if (widget.isForPayment) {
+        if (widget.onProductSelected != null)
+        {
+          widget.onProductSelected!(sanPham);
+        }
+        Navigator.of(context).pop();
+        return;
+      }
+
+      try {
+        if (widget.sanPhamToEdit != null) {
+          sanPham['id'] = widget.sanPhamToEdit!['id'];
+          await Provider.of<SanPhamProvider>(context, listen: false)
+              .capNhatSanPham(sanPham);
+          if (context.mounted) {
+            Navigator.pop(context, true);
+          }
+        } else {
+          await DatabaseHelper.instance.insertSanPham(sanPham);
+          widget.onSanPhamAdded(sanPham);
+          Provider.of<SanPhamProvider>(context, listen: false)
+              .dongBoHoaDanhSach();
+          if (context.mounted) {
+            Navigator.pop(context, true);
+          }
+        }
+      } catch (e) {
+        print('Lỗi lưu sản phẩm: $e');
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content:
+                Text('Có lỗi xảy ra khi lưu sản phẩm: ${e.toString()}')),
+          );
+        }
+        if (context.mounted) {
+          Navigator.pop(context, false);
+        }
+      }
     }
   }
 
   void _xoaSanPham() async {
     if (widget.sanPhamToEdit != null) {
-      await DatabaseHelper.instance.deleteSanPham(widget.sanPhamToEdit!['id']);
-      Navigator.pop(context, true);
+      try {
+        await DatabaseHelper.instance
+            .deleteSanPham(widget.sanPhamToEdit!['id']);
+        Provider.of<SanPhamProvider>(context, listen: false)
+            .xoaSanPham(widget.sanPhamToEdit!['id']);
+        if (context.mounted) {
+          Navigator.pop(context, true);
+        }
+      } catch (e) {
+        print("Lỗi xóa sản phẩm: $e");
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Có lỗi xảy ra khi xóa sản phẩm"),
+          ));
+        }
+        if (context.mounted) {
+          Navigator.pop(context, false);
+        }
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    double gia = 0.0;
-    try {
-      gia = double.parse(_giaSanPhamController.text);
-    } catch (e) {
-      print('Error parsing gia in build: $e');
-    }
-
     return Scaffold(
       appBar: AppBar(
-          title: Text(widget.sanPhamToEdit != null ? 'Sửa sản phẩm' : 'Thêm sản phẩm')),
+          title: Text(widget.sanPhamToEdit != null
+              ? 'Sửa sản phẩm'
+              : 'Thêm sản phẩm')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            GestureDetector(
-              onTap: _chonAnh,
-              child: Container(
-                width: double.infinity,
-                height: 200,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(10),
+        child: Form(  // Wrap with a Form
+          key: _formKey,
+          child: Column(
+            children: [
+              GestureDetector(
+                onTap: _chonAnh,
+                child: Container(
+                  width: double.infinity,
+                  height: 200,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: _selectedImage != null
+                      ? Image.file(_selectedImage!, fit: BoxFit.cover)
+                      : const Icon(Icons.camera_alt,
+                      size: 50, color: Colors.grey),
                 ),
-                child: _selectedImage != null
-                    ? Image.file(_selectedImage!, fit: BoxFit.cover)
-                    : Icon(Icons.camera_alt, size: 50, color: Colors.grey),
               ),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: _tenSanPhamController,
-              decoration: InputDecoration(labelText: 'Tên sản phẩm'),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: _giaSanPhamController,
-              decoration: InputDecoration(labelText: 'Giá sản phẩm'),
-              keyboardType: TextInputType.number,
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: _maVachSanPhamController,
-              decoration: InputDecoration(labelText: 'Mã vạch sản phẩm'),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _themSanPham,
-              child: Text(widget.sanPhamToEdit != null
-                  ? 'Cập nhật sản phẩm'
-                  : 'Thêm sản phẩm'),
-            ),
-            if (widget.sanPhamToEdit != null) ...[
-              SizedBox(height: 10),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _tenSanPhamController,
+                decoration: const InputDecoration(labelText: 'Tên sản phẩm'),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Vui lòng nhập tên sản phẩm';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _giaSanPhamController,
+                decoration: const InputDecoration(labelText: 'Giá sản phẩm'),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Vui lòng nhập giá sản phẩm';
+                  }
+                  if (double.tryParse(value) == null) {
+                    return 'Giá không hợp lệ';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _maVachController,
+                decoration: InputDecoration(
+                  labelText: 'Mã vạch (tùy chọn)',
+                  suffixIcon: IconButton(
+                    icon: Icon(_isScanning
+                        ? Icons.scanner_outlined
+                        : Icons.camera_alt),
+                    onPressed:
+                    _isScanning ? null : () => _startScan(context),
+                  ),
+                ),
+                readOnly: true,
+              ),
+              const SizedBox(height: 20),
               ElevatedButton(
-                onPressed: _xoaSanPham,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                child: Text('Xóa sản phẩm'),
+                onPressed: () => _luuSanPham(context),
+                child: Text(widget.sanPhamToEdit != null
+                    ? 'Cập nhật sản phẩm'
+                    : 'Thêm sản phẩm'),
               ),
+              if (widget.sanPhamToEdit != null && !widget.isForPayment) ...[
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: _xoaSanPham,
+                  style:
+                  ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  child: const Text('Xóa sản phẩm'),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 }
+

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-
+import 'package:base_project/database/database_helper.dart'; // Import DatabaseHelper
 import 'home_screen.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
 class LoginScreen extends StatefulWidget {
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  _LoginScreenState createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
@@ -18,30 +18,47 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void login() {
+
+  void login(BuildContext context) async {
     String username = _usernameController.text.trim();
     String password = _passwordController.text.trim();
-    String? role;
 
-    if (username == "QL" && password == "123") {
-      role = "Quản lý";
-    } else if (username == "NV" && password == "123") {
-      role = "Nhân viên";
+
+    var user = await DatabaseHelper.instance.getUserByUsername(username);
+
+    if (user != null) {
+      if (password == user['password']) {
+        print('Login successful for user: $username with role: ${user['role']}');
+
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isLoggedIn', true);
+        await prefs.setString('userRole', user['role']);
+        await prefs.setInt('userId', user['id']);
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomeScreen(
+              userRole: user['role'],
+              userId: user['id'],
+            ),
+          ),
+        );
+      } else {
+        print('Incorrect password for user: $username');
+        _showSnackBar(context, "Sai mật khẩu!");
+      }
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Sai tài khoản hoặc mật khẩu!")));
-      return;
+      print('User not found: $username');
+      _showSnackBar(context, "Tài khoản không tồn tại!");
     }
+  }
 
-    if (role != null) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => HomeScreen(userRole: role!),
-        ),
-      );
-    }
+
+  void _showSnackBar(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
@@ -49,40 +66,43 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       appBar: AppBar(backgroundColor: Colors.blue, title: Text('Đăng nhập')),
       body: SingleChildScrollView(
-        child: Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              SizedBox(height: 40),
-              Image.asset(
-                'assets/images/logo.jpg',
-                width: 180,
-                height: 130,
-                fit: BoxFit.contain,
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Chào mừng bạn đến với hệ thống\nquản lý cửa hàng tiện lợi',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 50),
-              TextField(
-                controller: _usernameController,
-                decoration: InputDecoration(labelText: 'Tên đăng nhập'),
-              ),
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: InputDecoration(labelText: 'Mật khẩu'),
-              ),
-              SizedBox(height: 20),
-              ElevatedButton(onPressed: login, child: Text('Đăng nhập')),
-              SizedBox(height: 20),
-            ],
-          ),
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(height: 40),
+            Image.asset(
+              'assets/images/logo.jpg',
+              width: 180,
+              height: 130,
+              fit: BoxFit.contain,
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Chào mừng bạn đến với hệ thống\nquản lý cửa hàng tiện lợi',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 50),
+            TextField(
+              controller: _usernameController,
+              decoration: InputDecoration(labelText: 'Tên đăng nhập'),
+            ),
+            TextField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: InputDecoration(labelText: 'Mật khẩu'),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                login(context);
+              },
+              child: Text('Đăng nhập'),
+            ),
+            SizedBox(height: 20),
+          ],
         ),
       ),
     );

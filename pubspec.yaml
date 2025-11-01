@@ -21,12 +21,14 @@ dependencies:
   image_picker: ^1.0.7
   flutter_localizations:
     sdk: flutter
-  intl: ^0.19.0
+  intl: ^0.20.2
   sqflite: ^2.4.2
   path: ^1.9.1
-
+  provider: ^6.1.1
+  shared_preferences: ^2.2.2
   # Mobile Scanner (Make sure to check for the latest version on pub.dev)
-  mobile_scanner: ^6.0.7
+  mobile_scanner: ^5.1.0
+  fl_chart: ^0.68.0
 
 dev_dependencies:
   flutter_test:
@@ -48,6 +50,7 @@ flutter:
 
   assets:
     - assets/images/logo.jpg
+    - assets/images/b03f976a88b43dea64a5.jpg
 
   # To add assets to your application, add an assets section, like this:
   # assets:
